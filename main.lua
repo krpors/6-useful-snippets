@@ -1,6 +1,8 @@
 local Object = require("classic")
 local Vector = require("vector")
 local Lume = require("lume")
+local Log = require("logger")
+local MultiMap = require("multimap")
 
 -- Source: https://blog.bruce-hill.com/6-useful-snippets
 
@@ -59,15 +61,17 @@ new_pos = vec(
 
 local WIDTH = 960
 local HEIGHT = 540
-local GRAVITY = Vector(0, 1000)
+local GRAVITY = Vector(500, 1000)
+local BUCKETSIZE = 100
 local balls = {}
 
 function init()
 	balls = {}
-	for x = 1, 21 do
-		local radius = love.math.random(2, 40)
+	for x = 1, 3 do
+		local radius = love.math.random(40, 50)
 		local position = Vector(love.math.random(radius, WIDTH - radius), love.math.random(radius, HEIGHT - radius))
 		local ball = {
+			id = x,
 			radius = radius,
 			pos = position,
 			prevpos = position,
@@ -82,8 +86,47 @@ function init()
 	end
 end
 
-function love.load(args)
+function collision_between(balls, bucketsize)
+	local buckets = {}
+	local maybe_collisions = MultiMap()
 
+	-- Broad phase collision candidate detection:
+	for k, ball in ipairs(balls) do
+		local xmin = math.floor((ball.pos.x - ball.radius) / bucketsize)
+		local xmax = math.floor((ball.pos.x + ball.radius) / bucketsize)
+		local ymin = math.floor((ball.pos.y - ball.radius) / bucketsize)
+		local ymax = math.floor((ball.pos.y + ball.radius) / bucketsize)
+		for x = xmin, xmax do
+			for y = ymin, ymax do
+				-- Determine in which 'bucket' the ball should reside
+				local key = x .. "," .. y
+				if buckets[key] == nil then
+					buckets[key] = {}
+				else
+					for _, other in ipairs(buckets[key]) do
+						-- Lua doesn't allow a compound key tuple of sorts to indicate
+						-- a 'unique combination', therefore we will have to reside to
+						-- using a multimap. If we don't use something like this, we will
+						-- get multiple collision candidates for the same objects.
+						maybe_collisions:add(ball, other)
+					end
+				end
+				table.insert(buckets[key], ball)
+			end
+		end
+	end
+
+	-- Narrow phase collision detection:
+	for _, collisionCandidate in pairs(maybe_collisions:combinations()) do
+		Log.info("Possible collision: %d vs %d", collisionCandidate.first.id, collisionCandidate.second.id)
+		-- TODO: check if really collide
+
+		-- return [(a,b) for (a,b) in maybe_collisions
+		-- if a.pos.dist(b.pos) <= a.radius + b.radius]
+	end
+end
+
+function love.load(args)
 	love.window.setTitle("6 Useful Snippets")
 	love.window.setMode(WIDTH, HEIGHT, { display = 1})
 
@@ -110,12 +153,24 @@ function love.update(dt)
 		ball.prevpos = ball.pos
 		ball.pos = nextpos
 	end
+
+	collision_between(balls, BUCKETSIZE)
 end
 
 function love.draw()
 	for _, ball in ipairs(balls) do
 		love.graphics.setColor(ball.color.r, ball.color.g, ball.color.b, 1)
 		love.graphics.circle("fill", ball.pos.x, ball.pos.y, ball.radius)
+		love.graphics.setColor(1, 1, 1)
+		love.graphics.print("" .. ball.id, ball.pos.x - ball.radius / 2 / 2, ball.pos.y - ball.radius*2)
+	end
+
+	for x = 0, WIDTH, BUCKETSIZE do
+		love.graphics.line(x, 0, x, HEIGHT)
+	end
+
+	for y = 0, HEIGHT, BUCKETSIZE do
+		love.graphics.line(0, y, WIDTH, y)
 	end
 end
 
