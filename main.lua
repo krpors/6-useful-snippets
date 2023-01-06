@@ -61,7 +61,7 @@ new_pos = vec(
 
 local WIDTH = 960
 local HEIGHT = 540
-local GRAVITY = Vector(500, 1000)
+local GRAVITY = Vector(0, 1000)
 local BUCKETSIZE = 100
 local balls = {}
 
@@ -75,7 +75,7 @@ function init()
 			radius = radius,
 			pos = position,
 			prevpos = position,
-			mass = radius * 2,
+			mass = radius,
 			color = {
 				r = love.math.random(),
 				g = love.math.random(),
@@ -116,14 +116,20 @@ function collision_between(balls, bucketsize)
 		end
 	end
 
+	Log.info("=================================")
+	local collisions = {}
 	-- Narrow phase collision detection:
 	for _, collisionCandidate in pairs(maybe_collisions:combinations()) do
-		Log.info("Possible collision: %d vs %d", collisionCandidate.first.id, collisionCandidate.second.id)
-		-- TODO: check if really collide
-
-		-- return [(a,b) for (a,b) in maybe_collisions
-		-- if a.pos.dist(b.pos) <= a.radius + b.radius]
+		local a = collisionCandidate.first
+		local b = collisionCandidate.second
+		if a.pos:dist(b.pos) - a.radius - b.radius <= 0 then
+		-- if a.pos:dist(b.pos) <= a.radius + b.radius then
+			Log.info("Collision between %d and %d", a.id, b.id)
+			table.insert(collisions, {a = a, b = b})
+		end
 	end
+
+	return collisions
 end
 
 function love.load(args)
@@ -154,7 +160,31 @@ function love.update(dt)
 		ball.pos = nextpos
 	end
 
-	collision_between(balls, BUCKETSIZE)
+	local coll = collision_between(balls, BUCKETSIZE)
+	for x = 1, 5 do
+		for _, ballCollisions in ipairs(coll) do
+			-- Log.info("Coll: %d", v.a.id)
+			local a = ballCollisions.a
+			local b = ballCollisions.b
+
+			local a2b = (b.pos - a.pos):norm()
+			local overlap = (a.radius + b.radius) - a.pos:dist(b.pos)
+			a.pos = a.pos - 0.5 * a2b * overlap * b.mass / (a.mass + b.mass)
+			b.pos = b.pos - 0.6 * a2b * overlap * a.mass / (a.mass + b.mass)
+		end
+
+		for _, v in ipairs(balls) do
+			-- TODO: stay on scren
+		end
+	end
+
+	--[[
+		for a,b in collisions_between(things):
+			a2b = (b.pos - a.pos).normalized()
+			overlap = (a.radius + b.radius) - a.pos.dist(b.pos)
+			a.pos = a.pos - stiffness*a2b*overlap*b.mass/(a.mass+b.mass)
+			b.pos = b.pos + stiffness*a2b*overlap*a.mass/(a.mass+b.mass)
+	]]
 end
 
 function love.draw()
