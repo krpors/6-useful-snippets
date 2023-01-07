@@ -67,8 +67,8 @@ local balls = {}
 
 function init()
 	balls = {}
-	for x = 1, 3 do
-		local radius = love.math.random(40, 50)
+	for x = 1, 20 do
+		local radius = love.math.random(20, 50)
 		local position = Vector(love.math.random(radius, WIDTH - radius), love.math.random(radius, HEIGHT - radius))
 		local ball = {
 			id = x,
@@ -86,6 +86,18 @@ function init()
 	end
 end
 
+--[[
+To do collision checking with spatial hashing, you divide the world into large
+grid cells (buckets). For each object, you find all the buckets that it
+approximately touches (it’s okay to be overly inclusive, as long as you don’t
+miss any) and add the object to each bucket’s list of members. As you do, mark
+the object as potentially colliding with the bucket’s existing members. After
+processing each object, you’ll have a list of all potential collisions, which
+you can then process to filter out any false positives (things that fall into
+the same bucket but don’t actually overlap). For most use cases, this process is
+very close to linear in speed, because most hash buckets can only fit a couple
+of objects, and most objects only touch a couple of buckets.
+]]
 function collision_between(balls, bucketsize)
 	local buckets = {}
 	local maybe_collisions = MultiMap()
@@ -98,16 +110,15 @@ function collision_between(balls, bucketsize)
 		local ymax = math.floor((ball.pos.y + ball.radius) / bucketsize)
 		for x = xmin, xmax do
 			for y = ymin, ymax do
-				-- Determine in which 'bucket' the ball should reside
+				-- Determine in which 'bucket' the ball should reside. Lua
+				-- does not allow compound keys in tables so we will have to
+				-- transform the key into a string.
 				local key = x .. "," .. y
 				if buckets[key] == nil then
 					buckets[key] = {}
 				else
 					for _, other in ipairs(buckets[key]) do
-						-- Lua doesn't allow a compound key tuple of sorts to indicate
-						-- a 'unique combination', therefore we will have to reside to
-						-- using a multimap. If we don't use something like this, we will
-						-- get multiple collision candidates for the same objects.
+						-- Get unique combinations of collisions.
 						maybe_collisions:add(ball, other)
 					end
 				end
@@ -116,15 +127,13 @@ function collision_between(balls, bucketsize)
 		end
 	end
 
-	Log.info("=================================")
+	-- Narrow phase collision detection. This is simply checking the candidates
+	-- if the *really* collide.
 	local collisions = {}
-	-- Narrow phase collision detection:
 	for _, collisionCandidate in pairs(maybe_collisions:combinations()) do
 		local a = collisionCandidate.first
 		local b = collisionCandidate.second
 		if a.pos:dist(b.pos) - a.radius - b.radius <= 0 then
-		-- if a.pos:dist(b.pos) <= a.radius + b.radius then
-			Log.info("Collision between %d and %d", a.id, b.id)
 			table.insert(collisions, {a = a, b = b})
 		end
 	end
@@ -154,7 +163,7 @@ function love.update(dt)
 		local maxed_vec = Vector(clamped_x, clamped_y)
 
 		-- Make it bouncy:
-		nextpos = nextpos:mix(maxed_vec, 0.1)
+		nextpos = nextpos:mix(maxed_vec, 0.6)
 
 		ball.prevpos = ball.pos
 		ball.pos = nextpos
@@ -162,29 +171,27 @@ function love.update(dt)
 
 	local coll = collision_between(balls, BUCKETSIZE)
 	for x = 1, 5 do
+		-- This part makes sure the balls don't overlap and bounce against
+		-- each other.
 		for _, ballCollisions in ipairs(coll) do
 			-- Log.info("Coll: %d", v.a.id)
 			local a = ballCollisions.a
 			local b = ballCollisions.b
 
+			-- Calculate the difference between vector a and b, normalized.
+			-- This results in a vector. So far so good
 			local a2b = (b.pos - a.pos):norm()
+			-- How much do they overlap (this is a number)
 			local overlap = (a.radius + b.radius) - a.pos:dist(b.pos)
+			-- Calculate the new position of the balls by doing some calculation.
 			a.pos = a.pos - 0.5 * a2b * overlap * b.mass / (a.mass + b.mass)
-			b.pos = b.pos - 0.6 * a2b * overlap * a.mass / (a.mass + b.mass)
+			b.pos = b.pos + 0.5 * a2b * overlap * a.mass / (a.mass + b.mass)
 		end
 
 		for _, v in ipairs(balls) do
 			-- TODO: stay on scren
 		end
 	end
-
-	--[[
-		for a,b in collisions_between(things):
-			a2b = (b.pos - a.pos).normalized()
-			overlap = (a.radius + b.radius) - a.pos.dist(b.pos)
-			a.pos = a.pos - stiffness*a2b*overlap*b.mass/(a.mass+b.mass)
-			b.pos = b.pos + stiffness*a2b*overlap*a.mass/(a.mass+b.mass)
-	]]
 end
 
 function love.draw()
@@ -195,13 +202,14 @@ function love.draw()
 		love.graphics.print("" .. ball.id, ball.pos.x - ball.radius / 2 / 2, ball.pos.y - ball.radius*2)
 	end
 
-	for x = 0, WIDTH, BUCKETSIZE do
-		love.graphics.line(x, 0, x, HEIGHT)
-	end
 
-	for y = 0, HEIGHT, BUCKETSIZE do
-		love.graphics.line(0, y, WIDTH, y)
-	end
+	-- for x = 0, WIDTH, BUCKETSIZE do
+	-- 	love.graphics.line(x, 0, x, HEIGHT)
+	-- end
+
+	-- for y = 0, HEIGHT, BUCKETSIZE do
+	-- 	love.graphics.line(0, y, WIDTH, y)
+	-- end
 end
 
 function love.keypressed(key)
