@@ -63,12 +63,13 @@ local WIDTH = 960
 local HEIGHT = 540
 local GRAVITY = Vector(0, 1000)
 local BUCKETSIZE = 100
+local BALLCOUNT = 50
 local balls = {}
 
 function init()
 	balls = {}
-	for x = 1, 20 do
-		local radius = love.math.random(20, 50)
+	for x = 1, BALLCOUNT do
+		local radius = love.math.random(20, 40)
 		local position = Vector(love.math.random(radius, WIDTH - radius), love.math.random(radius, HEIGHT - radius))
 		local ball = {
 			id = x,
@@ -76,6 +77,7 @@ function init()
 			pos = position,
 			prevpos = position,
 			mass = radius,
+			stiffness = love.math.random(),
 			color = {
 				r = love.math.random(),
 				g = love.math.random(),
@@ -159,22 +161,23 @@ function love.update(dt)
 
 		-- Make sure we do not go out of bounds of the screen in the x and y direction:
 		local clamped_x = Lume.clamp(nextpos.x, ball.radius, WIDTH - ball.radius)
-		local clamped_y = Lume.clamp(nextpos.y, -1000, HEIGHT - ball.radius)
+		local clamped_y = Lume.clamp(nextpos.y, ball.radius, HEIGHT - ball.radius)
 		local maxed_vec = Vector(clamped_x, clamped_y)
 
-		-- Make it bouncy:
-		nextpos = nextpos:mix(maxed_vec, 0.6)
+		-- Make it bouncy, by lerping (or mixing) the next position with the clamped
+		-- vector, using a stiffness factor (between 0 and 1).
+		nextpos = nextpos:mix(maxed_vec, ball.stiffness)
 
 		ball.prevpos = ball.pos
 		ball.pos = nextpos
 	end
 
+	-- Iterative constraint solving
 	local coll = collision_between(balls, BUCKETSIZE)
 	for x = 1, 5 do
 		-- This part makes sure the balls don't overlap and bounce against
 		-- each other.
 		for _, ballCollisions in ipairs(coll) do
-			-- Log.info("Coll: %d", v.a.id)
 			local a = ballCollisions.a
 			local b = ballCollisions.b
 
@@ -184,32 +187,20 @@ function love.update(dt)
 			-- How much do they overlap (this is a number)
 			local overlap = (a.radius + b.radius) - a.pos:dist(b.pos)
 			-- Calculate the new position of the balls by doing some calculation.
-			a.pos = a.pos - 0.5 * a2b * overlap * b.mass / (a.mass + b.mass)
-			b.pos = b.pos + 0.5 * a2b * overlap * a.mass / (a.mass + b.mass)
-		end
-
-		for _, v in ipairs(balls) do
-			-- TODO: stay on scren
+			a.pos = a.pos - a.stiffness * a2b * overlap * b.mass / (a.mass + b.mass)
+			b.pos = b.pos + b.stiffness * a2b * overlap * a.mass / (a.mass + b.mass)
 		end
 	end
 end
 
 function love.draw()
 	for _, ball in ipairs(balls) do
-		love.graphics.setColor(ball.color.r, ball.color.g, ball.color.b, 1)
+		love.graphics.setColor(0.8, 0.8, 0.8, 0.5)
+		love.graphics.setLineWidth(4)
+		love.graphics.circle("line", ball.pos.x, ball.pos.y, ball.radius)
+		love.graphics.setColor(ball.color.r, ball.color.g, ball.color.b, 0.8)
 		love.graphics.circle("fill", ball.pos.x, ball.pos.y, ball.radius)
-		love.graphics.setColor(1, 1, 1)
-		love.graphics.print("" .. ball.id, ball.pos.x - ball.radius / 2 / 2, ball.pos.y - ball.radius*2)
 	end
-
-
-	-- for x = 0, WIDTH, BUCKETSIZE do
-	-- 	love.graphics.line(x, 0, x, HEIGHT)
-	-- end
-
-	-- for y = 0, HEIGHT, BUCKETSIZE do
-	-- 	love.graphics.line(0, y, WIDTH, y)
-	-- end
 end
 
 function love.keypressed(key)
